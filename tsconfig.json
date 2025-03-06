@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "es2021",
+    "lib": ["es2021", "dom"],
+    "esModuleInterop": true,
+    "module": "nodenext",
+    "skipLibCheck": true,
+    "allowJs": true,
+    "verbatimModuleSyntax": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "valtio-observe": ["./src/index.ts"]
+    }
+  },
+  "exclude": ["dist", "examples"]
+}
