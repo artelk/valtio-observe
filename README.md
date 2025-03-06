@@ -17,11 +17,11 @@ npm install valtio valtio-observe
 observe<T>(func: () => T, consume: (value: T) => void, inSync?: boolean): () => void
 ```
 
-The observe exceutes the func and passes its result to the consume function.
-It subscribes to all proxy properties which getters were accessed while calling the func.
+The `observe` excecutes the `func` and passes its result to the `consume` function.
+It subscribes to all proxy properties which getters were accessed while calling the `func`.
 Additianally it searches for proxies in the returned value and subscribes to them.
-The observe returns a function that should be called to stop the process.
-Note: If the reference to the stop function is lost the obrerving will be stoped on the next GC run.
+The `observe` returns a function that should be called to stop the process.
+Note: If the reference to the stop function is lost the observing will be stoped on the next GC run.
 
 Example
 
@@ -70,9 +70,14 @@ setTimeout(stop, 60_000);
 
 ## Usage with React
 
+Signature:
+
 ```ts
 useObserve<T>(func: () => T, inSync?: boolean): T
 ```
+
+The `useObserve` converts the object returned from the `func` to a read-only copy.
+It calls `snapshot` for the proxies found in the object.
 
 ```js
 import { useObserve } from 'valtio-observe';
