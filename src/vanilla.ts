@@ -107,13 +107,16 @@ const { listenGetters, subscribeToSetters } = (() => {
 
 function collectProxies(obj: unknown) {
   const proxies = new Set<object>();
+  const visited = new Set<object>();
 
   function traversal(obj: unknown) {
     if (!isObject(obj)) return;
+    if (visited.has(obj)) return;
     if (isValtioProxy(obj)) {
       proxies.add(obj);
       return;
     }
+    visited.add(obj);
     for (const child of Object.values(obj)) traversal(child);
   }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { proxy } from 'valtio';
-import { observe } from 'valtio-observe';
+import { observe, snapshotify } from 'valtio-observe';
 
 describe('observe', () => {
   it('should run function initially', async () => {
@@ -108,5 +108,37 @@ describe('observe', () => {
     expect(result).toEqual('1:2:3:1');
 
     stop();
+  });
+
+  it('should handle back references in the returned object', async () => {
+    type Obj = { v: number; parent: Obj };
+    const state = proxy({ count: 0 });
+    let result: Obj = null!;
+    const stop = observe(
+      () => {
+        const obj: Obj = { v: state.count, parent: null! };
+        obj.parent = obj;
+        return obj;
+      },
+      (obj) => {
+        result = obj;
+      },
+      true, // sync
+    );
+    ++state.count;
+    expect(result.v).toEqual(state.count);
+    expect(result.parent).toBe(result);
+    stop();
+  });
+});
+
+describe('snapshotify', () => {
+  it('should handle back references in the object', async () => {
+    type Obj = { v: number; parent: Obj };
+    const obj: Obj = { v: 0, parent: null! };
+    obj.parent = obj;
+    const snap = snapshotify(obj);
+    expect(snap).not.toBe(obj);
+    expect(snap.parent).toBe(snap);
   });
 });

@@ -11,30 +11,38 @@ const valtioCanProxy = (() => {
   return valtioCanProxy!;
 })();
 
-function snapshotify<T>(target: T): T {
-  if (isValtioProxy(target)) {
-    return snapshot(target) as T; // found proxy, let's snapshot it!
-  }
-  if (!valtioCanProxy(target)) return target;
-  const snap = Array.isArray(target)
-    ? []
-    : Object.create(Object.getPrototypeOf(target));
-  Reflect.ownKeys(target as object).forEach((key) => {
-    if (Object.getOwnPropertyDescriptor(snap, key)) {
-      return;
+export function snapshotify<T>(target: T): T {
+  const map = new Map<object, object>();
+
+  function traversal(target: T) {
+    if (isValtioProxy(target)) {
+      return snapshot(target) as T; // found proxy, let's snapshot it!
     }
-    const { enumerable } = Reflect.getOwnPropertyDescriptor(
-      target as object,
-      key,
-    ) as PropertyDescriptor;
-    const value = snapshotify(Reflect.get(target as object, key)); // recursive
-    const desc: PropertyDescriptor = {
-      value,
-      enumerable: enumerable as boolean,
-    };
-    Object.defineProperty(snap, key, desc);
-  });
-  return Object.preventExtensions(snap);
+    if (!valtioCanProxy(target)) return target;
+    if (map.has(target as object)) return map.get(target as object);
+    const snap = Array.isArray(target)
+      ? []
+      : Object.create(Object.getPrototypeOf(target));
+    map.set(target as object, snap);
+    Reflect.ownKeys(target as object).forEach((key) => {
+      if (Object.getOwnPropertyDescriptor(snap, key)) {
+        return;
+      }
+      const { enumerable } = Reflect.getOwnPropertyDescriptor(
+        target as object,
+        key,
+      ) as PropertyDescriptor;
+      const value = traversal(Reflect.get(target as object, key)); // recursive
+      const desc: PropertyDescriptor = {
+        value,
+        enumerable: enumerable as boolean,
+      };
+      Object.defineProperty(snap, key, desc);
+    });
+    return Object.preventExtensions(snap);
+  }
+
+  return traversal(target);
 }
 
 export function useObserve<T>(func: () => T, inSync?: boolean): T {
