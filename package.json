@@ -1,7 +1,7 @@
 {
   "name": "valtio-observe",
   "description": "valtio-observe",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "author": "Artem Elkin",
   "repository": {
@@ -22,6 +22,16 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
+    },
+    "./*": {
+      "require": {
+        "types": "./dist/cjs/*.d.ts",
+        "default": "./dist/cjs/*.js"
+      },
+      "default": {
+        "types": "./dist/*.d.ts",
+        "default": "./dist/*.js"
+      }
     }
   },
   "sideEffects": false,
@@ -40,7 +50,8 @@
     "test:types": "tsc -p . --noEmit",
     "test:types:examples": "tsc -p examples --noEmit",
     "test:spec": "vitest run",
-    "examples:01_observe": "DIR=01_observe vite"
+    "example:01": "npx tsx ./examples/01_observe/index.ts",
+    "example:02": "vite ./examples/02_useObserve"
   },
   "keywords": [
     "valtio",
@@ -59,6 +70,7 @@
     "@types/node": "^22.10.10",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
+    "tsx": "latest",
     "eslint": "9.19.0",
     "eslint-import-resolver-typescript": "^3.7.0",
     "eslint-plugin-import": "^2.31.0",

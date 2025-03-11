@@ -1,4 +1,5 @@
 import {
+  snapshot,
   subscribe,
   unstable_getInternalStates,
   unstable_replaceInternalFunction,
@@ -7,9 +8,22 @@ import {
 const isObject = (x: unknown): x is object =>
   typeof x === 'object' && x !== null;
 
-export const isValtioProxy = (() => {
-  const { proxyStateMap } = unstable_getInternalStates();
-  return (x: unknown): x is object => isObject(x) && proxyStateMap.has(x);
+const { isValtioProxy, getValtioProxy } = (() => {
+  const { proxyStateMap, proxyCache } = unstable_getInternalStates();
+  return {
+    isValtioProxy: (x: unknown): x is object =>
+      isObject(x) && proxyStateMap.has(x),
+    getValtioProxy: (x: object) => proxyCache.get(x)!,
+  };
+})();
+
+const valtioCanProxy = (() => {
+  let valtioCanProxy: (x: unknown) => boolean;
+  unstable_replaceInternalFunction('canProxy', (canProxy) => {
+    valtioCanProxy = canProxy;
+    return canProxy;
+  });
+  return valtioCanProxy!;
 })();
 
 const { listenGetters, subscribeToSetters } = (() => {
@@ -56,6 +70,25 @@ const { listenGetters, subscribeToSetters } = (() => {
           return value;
         };
 
+        const origHas = handler.has || ((target, p) => Reflect.has(target, p));
+        handler.has = (target, p) => {
+          const receiver = getValtioProxy(target);
+          const result = origHas(target, p);
+          for (const listener of getterListeners)
+            listener(receiver, p, undefined);
+          return result;
+        };
+
+        const origOwnKeys =
+          handler.ownKeys || ((target) => Reflect.ownKeys(target));
+        handler.ownKeys = (target) => {
+          const receiver = getValtioProxy(target);
+          const result = origOwnKeys(target);
+          for (const listener of getterListeners)
+            listener(receiver, 'keys', undefined);
+          return result;
+        };
+
         const origSet = handler.set!;
         handler.set = (target, prop, value, receiver) => {
           const prevValue = Reflect.get(target, prop, receiver);
@@ -68,7 +101,19 @@ const { listenGetters, subscribeToSetters } = (() => {
           return result;
         };
 
-        //TODO: defineProperty/deleteProperty ?
+        const origDeleteProperty =
+          handler.deleteProperty ||
+          ((target, p) => Reflect.deleteProperty(target, p));
+        handler.deleteProperty = (target, p) => {
+          const receiver = getValtioProxy(target);
+          const prevValue = Reflect.get(target, p);
+          const result = origDeleteProperty(target, p);
+          if (result) {
+            if (prevValue !== undefined)
+              notifySetterListeners(receiver, p, prevValue, undefined);
+          }
+          return result;
+        };
 
         return handler;
       },
@@ -105,8 +150,7 @@ const { listenGetters, subscribeToSetters } = (() => {
   return { listenGetters, subscribeToSetters };
 })();
 
-function collectProxies(obj: unknown) {
-  const proxies = new Set<object>();
+function collectProxies(obj: unknown, proxies: Set<object>) {
   const visited = new Set<object>();
 
   function traversal(obj: unknown) {
@@ -121,8 +165,6 @@ function collectProxies(obj: unknown) {
   }
 
   traversal(obj);
-
-  return proxies;
 }
 
 function subscribeWeak<T extends object>(
@@ -145,41 +187,86 @@ function subscribeWeak<T extends object>(
   return unsubscribe;
 }
 
+const batchCompleteCallbacks = new Set<() => void>();
+let batchDepth = 0;
+
+export function batch(body: () => void) {
+  batchDepth++;
+  try {
+    body();
+  } finally {
+    batchDepth--;
+  }
+
+  if (batchDepth > 0) return;
+
+  for (const callback of batchCompleteCallbacks) {
+    batchCompleteCallbacks.delete(callback);
+    try {
+      callback();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+}
+
 export function observe<T>(
   func: () => T,
   consume: (value: T) => void,
   inSync?: boolean,
-): () => void {
+): { sync: () => boolean; stop: () => void } {
   const accessedProxyProperties = new Map<object, Set<string | symbol>>();
   const proxySubscriptions = new Map<object, () => void>();
 
   let stopped = false;
-  let version = 0;
-  let processedVersion = 0;
+  let triggered = false;
   const trigger = inSync
-    ? update
+    ? () => {
+        if (batchDepth > 0) {
+          batchCompleteCallbacks.add(update);
+        } else {
+          update();
+        }
+      }
     : () => {
-        version++;
+        if (triggered) return;
+        triggered = true;
         Promise.resolve().then(() => {
-          if (processedVersion < version) {
-            processedVersion = version;
+          if (triggered) {
             update();
+            triggered = false;
           }
         });
       };
   const triggerRef = new WeakRef<() => void>(trigger);
 
-  const unsubSetters = subscribeToSetters((receiver, prop) => {
-    if (accessedProxyProperties.get(receiver)?.has(prop)) {
-      trigger();
-    }
-  });
+  const unsubscribeSetters = subscribeToSetters(
+    (receiver, prop, prevValue, newValue) => {
+      const props = accessedProxyProperties.get(receiver);
+      if (!props) return;
+      if (props.has(prop)) {
+        trigger();
+        return;
+      }
 
-  function addAccessedProxyProperty(
-    receiver: object,
-    prop: string | symbol,
-    _value: unknown,
-  ) {
+      if (Array.isArray(receiver) && prop === 'length') {
+        const prevLength = prevValue as number;
+        const newLength = newValue as number;
+        if (newLength >= prevLength) return;
+        for (const p of props.keys()) {
+          if (typeof p !== 'string') continue;
+          const i = parseInt(p as string);
+          if (isNaN(i)) continue;
+          if (i < prevLength && i >= newLength) {
+            trigger();
+            return;
+          }
+        }
+      }
+    },
+  );
+
+  function addAccessedProxyProperty(receiver: object, prop: string | symbol) {
     if (!accessedProxyProperties.has(receiver)) {
       accessedProxyProperties.set(
         receiver,
@@ -190,13 +277,44 @@ export function observe<T>(
     }
   }
 
-  function update() {
+  const update = () => {
     if (stopped) return;
+    try {
+      doUpdate();
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
+  function getterListener(
+    proxies: Set<object>,
+    proxy: object,
+    prop: string | symbol,
+  ) {
+    if (proxies.has(proxy)) return;
+    addAccessedProxyProperty(proxy, prop);
+    if (!Array.isArray(proxy)) return;
+
+    const arrayProps = accessedProxyProperties.get(proxy)!;
+    const shouldSwitchToProxySubscription =
+      prop === 'entries' ||
+      prop === 'keys' ||
+      prop === 'values' ||
+      (arrayProps.size > 1 && arrayProps.has('length'));
+    if (shouldSwitchToProxySubscription) {
+      proxies.add(proxy);
+      accessedProxyProperties.delete(proxy);
+    }
+  }
+
+  function doUpdate() {
     accessedProxyProperties.clear();
-    const value = listenGetters(addAccessedProxyProperty, func);
-
-    const proxies = collectProxies(value);
+    const proxies = new Set<object>();
+    const value = listenGetters(
+      (proxy, prop) => getterListener(proxies, proxy, prop),
+      func,
+    );
+    collectProxies(value, proxies);
     proxySubscriptions.forEach((unsubscribe, receiver) => {
       if (!proxies.has(receiver)) {
         unsubscribe();
@@ -209,15 +327,65 @@ export function observe<T>(
         proxySubscriptions.set(receiver, unsubscribe);
       }
     });
+    accessedProxyProperties.forEach((receiver) => {
+      if (proxies.has(receiver)) {
+        accessedProxyProperties.delete(receiver);
+      }
+    });
 
     consume(value);
   }
 
   update();
 
-  return () => {
-    stopped = true;
-    unsubSetters();
-    proxySubscriptions.forEach((unsubscribe) => unsubscribe());
+  return {
+    sync: inSync
+      ? () => false
+      : () => {
+          if (!triggered) return false;
+          update();
+          triggered = false;
+          return true;
+        },
+    stop: () => {
+      stopped = true;
+      batchCompleteCallbacks.delete(update);
+      unsubscribeSetters();
+      proxySubscriptions.forEach((unsubscribe) => unsubscribe());
+    },
   };
+}
+
+export function snapshotify<T>(target: T): T {
+  const map = new Map<object, object>();
+
+  function traversal(target: T) {
+    if (isValtioProxy(target)) {
+      return snapshot(target) as T; // found proxy, let's snapshot it!
+    }
+    if (!valtioCanProxy(target)) return target;
+    if (map.has(target as object)) return map.get(target as object);
+    const snap = Array.isArray(target)
+      ? []
+      : Object.create(Object.getPrototypeOf(target));
+    map.set(target as object, snap);
+    Reflect.ownKeys(target as object).forEach((key) => {
+      if (Object.getOwnPropertyDescriptor(snap, key)) {
+        return;
+      }
+      const { enumerable } = Reflect.getOwnPropertyDescriptor(
+        target as object,
+        key,
+      ) as PropertyDescriptor;
+      const value = traversal(Reflect.get(target as object, key)); // recursive
+      const desc: PropertyDescriptor = {
+        value,
+        enumerable: enumerable as boolean,
+      };
+      Object.defineProperty(snap, key, desc);
+    });
+    return Object.preventExtensions(snap);
+  }
+
+  return traversal(target);
 }

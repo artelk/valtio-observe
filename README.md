@@ -14,22 +14,33 @@ npm install valtio valtio-observe
 ## Vanilla js/ts usage
 
 ```ts
-observe<T>(func: () => T, consume: (value: T) => void, inSync?: boolean): () => void
+observe<T>(func: () => T, consume: (value: T) => void, inSync?: boolean): { sync: () => boolean; stop: () => void }
 ```
 
 The `observe` excecutes the `func` and passes its result to the `consume` function.
 It subscribes to all proxy properties which getters were accessed while calling the `func`.
 Additianally it searches for proxies in the returned value and subscribes to them.
-The `observe` returns a function that should be called to stop the process.
-Note: If the reference to the stop function is lost the observing will be stoped on the next GC run.
+The `observe` returns functions 'stop' and 'sync'. The `stop` should be called to stop the process.
+The `sync` can be useful with asynchronous observes and it allows to execute pending updates if any.
+Note: If the references to the returned functions are lost the observing will be stoped on the next GC run.
+
+```ts
+batch(body: () => void): void
+```
+
+The `batch` is useful with synchronous observes to trigger only one update for multiple changes made in the batch.
 
 Example
 
-```js
+```ts
 import { proxy } from 'valtio';
 import { observe } from 'valtio-observe/vanilla';
 
-let stop = observe(
+const state1 = proxy({ x: 0 });
+const state2 = proxy({ a: { y: 0, ignore: '' } });
+const state3 = proxy({ b: { c: { z: 0 } } });
+
+const { stop } = observe(
   () => {
     const x = state1.x;
     const {
@@ -45,14 +56,14 @@ let stop = observe(
 );
 //stop = null; // don't lose the reference to the returned stop function otherwise it will be auto-stopped on the next GC run!
 
-setInterval(() => {
+const interval = setInterval(() => {
   state1.x++;
 
   if (state1.x % 2 == 0) {
     if (state2.a.y % 2 == 0) {
       state2.a.y++;
     } else {
-      state2.a = { y: state2.a.y + 1 };
+      state2.a = { y: state2.a.y + 1, ignore: '' };
     }
   }
 
@@ -65,7 +76,10 @@ setInterval(() => {
   }
 }, 1000);
 
-setTimeout(stop, 60_000);
+setTimeout(() => {
+  clearInterval(interval);
+  stop();
+}, 30_000);
 ```
 
 ## Usage with React

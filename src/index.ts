@@ -1,2 +1,2 @@
-export { observe } from './vanilla.js';
-export { useObserve, snapshotify } from './react.js';
+export * from './vanilla.js';
+export * from './react.js';
