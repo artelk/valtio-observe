@@ -1,6 +1,6 @@
 import { describe, expect, it, test, vi } from 'vitest';
-import { proxy } from 'valtio';
-import { batch, observe, snapshotify } from 'valtio-observe';
+import { proxy } from 'valtio/vanilla';
+import { observe } from 'valtio-observe';
 
 describe('observe', () => {
   it('should run function initially', async () => {
@@ -163,6 +163,21 @@ describe('observe', () => {
     expect(triggeredCount).toEqual(2);
     expect(result).toEqual(2);
 
+    state.v++;
+    state.v++;
+    expect(triggeredCount).toEqual(2);
+    expect(result).toEqual(2);
+
+    expect(sync()).toEqual(true);
+    expect(triggeredCount).toEqual(3);
+    expect(result).toEqual(4);
+
+    state.v++;
+    state.v++;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(triggeredCount).toEqual(4);
+    expect(result).toEqual(6);
+
     stop();
   });
 
@@ -269,11 +284,12 @@ describe('observe', () => {
       true,
       (a) => {
         for (const _ of a) {
-          // noop
+          break;
         }
       },
     ],
   ];
+  let uniqueValue = 0;
 
   test.each(arrayFuncCases)(
     'array - should trigger: %s, function: %s',
@@ -281,7 +297,10 @@ describe('observe', () => {
       const state = proxy({ array: [0, 1, 2, 3, 4] });
       let triggered = false;
       const { stop } = observe(
-        () => func(state.array),
+        () => {
+          func(state.array);
+          return uniqueValue++;
+        },
         (_v) => {
           triggered = true;
         },
@@ -295,49 +314,101 @@ describe('observe', () => {
   );
 });
 
-describe('batch', () => {
-  it('should work', async () => {
-    const state = proxy({ v: 0 });
-    let triggeredCount = 0;
-    const { stop } = observe(
-      () => state.v,
-      (_v) => {
-        triggeredCount++;
-      },
-      true, // sync
-    );
-    expect(triggeredCount).toEqual(1);
+it('should reuse parts of the returned object if deep equal', async () => {
+  const state = proxy({ x: 0, other: { y: 0 } });
+  let count = 0;
+  let result = {
+    mod2: { v: -1 },
+    mod3: { v: -1 },
+    mod5: { v: -1 },
+    otherProxy: state.other,
+  };
+  const { stop } = observe(
+    () => {
+      const x = state.x;
+      return {
+        mod2: { v: x % 2 },
+        mod3: { v: x % 3 },
+        mod5: { v: x % 5 },
+        otherProxy: state.other,
+      };
+    },
+    (v) => {
+      result = v;
+      count++;
+    },
+    true, // sync
+  );
+  expect(count).toEqual(1);
 
-    batch(() => {
-      state.v++;
-      state.v++;
-      expect(triggeredCount).toEqual(1);
-    });
-    expect(triggeredCount).toEqual(2);
+  let prevResult = result;
+  state.x++;
+  expect(count).toEqual(2);
+  expect(result).not.toBe(prevResult);
+  expect(result.mod2).not.toBe(prevResult.mod2);
+  expect(result.mod3).not.toBe(prevResult.mod3);
+  expect(result.mod5).not.toBe(prevResult.mod5);
 
-    batch(() => {
-      state.v++;
-      state.v++;
-      batch(() => {
-        state.v++;
-        state.v++;
-        expect(triggeredCount).toEqual(2);
-      });
-      expect(triggeredCount).toEqual(2);
-    });
-    expect(triggeredCount).toEqual(3);
+  prevResult = result;
+  state.x += 2;
+  expect(count).toEqual(3);
+  expect(result).not.toBe(prevResult);
+  expect(result.mod2).toBe(prevResult.mod2);
+  expect(result.mod3).not.toBe(prevResult.mod3);
+  expect(result.mod5).not.toBe(prevResult.mod5);
 
-    stop();
-  });
-});
+  prevResult = result;
+  state.x += 3;
+  expect(count).toEqual(4);
+  expect(result).not.toBe(prevResult);
+  expect(result.mod2).not.toBe(prevResult.mod2);
+  expect(result.mod3).toBe(prevResult.mod3);
+  expect(result.mod5).not.toBe(prevResult.mod5);
 
-describe('snapshotify', () => {
-  it('should handle cycles in the object', async () => {
-    type Obj = { v: number; parent: Obj };
-    const obj: Obj = { v: 0, parent: null! };
-    obj.parent = obj;
-    const snap = snapshotify(obj);
-    expect(snap).not.toBe(obj);
-    expect(snap.parent).toBe(snap);
-  });
+  prevResult = result;
+  state.x += 5;
+  expect(count).toEqual(5);
+  expect(result).not.toBe(prevResult);
+  expect(result.mod2).not.toBe(prevResult.mod2);
+  expect(result.mod3).not.toBe(prevResult.mod3);
+  expect(result.mod5).toBe(prevResult.mod5);
+
+  prevResult = result;
+  state.x += 6;
+  expect(count).toEqual(6);
+  expect(result).not.toBe(prevResult);
+  expect(result.mod2).toBe(prevResult.mod2);
+  expect(result.mod3).toBe(prevResult.mod3);
+  expect(result.mod5).not.toBe(prevResult.mod5);
+
+  prevResult = result;
+  state.x += 10;
+  expect(count).toEqual(7);
+  expect(result).not.toBe(prevResult);
+  expect(result.mod2).toBe(prevResult.mod2);
+  expect(result.mod3).not.toBe(prevResult.mod3);
+  expect(result.mod5).toBe(prevResult.mod5);
+
+  prevResult = result;
+  state.x += 15;
+  expect(count).toEqual(8);
+  expect(result).not.toBe(prevResult);
+  expect(result.mod2).not.toBe(prevResult.mod2);
+  expect(result.mod3).toBe(prevResult.mod3);
+  expect(result.mod5).toBe(prevResult.mod5);
+
+  prevResult = result;
+  state.x += 30;
+  expect(count).toEqual(8);
+
+  prevResult = result;
+  state.other.y++;
+  expect(count).toEqual(9);
+  expect(result).not.toBe(prevResult);
+  expect(result.mod2).toBe(prevResult.mod2);
+  expect(result.mod3).toBe(prevResult.mod3);
+  expect(result.mod5).toBe(prevResult.mod5);
+  expect(result.otherProxy).toBe(prevResult.otherProxy);
+
+  stop();
 });

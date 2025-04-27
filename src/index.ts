@@ -1,2 +1,2 @@
-export * from './vanilla.js';
-export * from './react.js';
+export { observe, batch } from './vanilla.js';
+export { useObserve } from './react.js';

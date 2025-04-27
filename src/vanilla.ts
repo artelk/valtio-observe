@@ -1,6 +1,7 @@
 import {
   snapshot,
   subscribe,
+  getVersion,
   unstable_getInternalStates,
   unstable_replaceInternalFunction,
 } from 'valtio/vanilla';
@@ -8,12 +9,13 @@ import {
 const isObject = (x: unknown): x is object =>
   typeof x === 'object' && x !== null;
 
-const { isValtioProxy, getValtioProxy } = (() => {
-  const { proxyStateMap, proxyCache } = unstable_getInternalStates();
+const { isValtioProxy, getValtioProxy, isRef } = (() => {
+  const { proxyStateMap, proxyCache, refSet } = unstable_getInternalStates();
   return {
     isValtioProxy: (x: unknown): x is object =>
       isObject(x) && proxyStateMap.has(x),
     getValtioProxy: (x: object) => proxyCache.get(x)!,
+    isRef: (x: object) => refSet.has(x),
   };
 })();
 
@@ -150,30 +152,13 @@ const { listenGetters, subscribeToSetters } = (() => {
   return { listenGetters, subscribeToSetters };
 })();
 
-function collectProxies(obj: unknown, proxies: Set<object>) {
-  const visited = new Set<object>();
-
-  function traversal(obj: unknown) {
-    if (!isObject(obj)) return;
-    if (visited.has(obj)) return;
-    if (isValtioProxy(obj)) {
-      proxies.add(obj);
-      return;
-    }
-    visited.add(obj);
-    for (const child of Object.values(obj)) traversal(child);
-  }
-
-  traversal(obj);
-}
-
 function subscribeWeak<T extends object>(
-  target: T,
+  proxy: T,
   callbackWeakRef: WeakRef<() => void>,
   inSync?: boolean,
 ) {
   const unsubscribe = subscribe(
-    target,
+    proxy,
     () => {
       const callback = callbackWeakRef.deref();
       if (callback) {
@@ -217,6 +202,8 @@ export function observe<T>(
 ): { sync: () => boolean; stop: () => void } {
   const accessedProxyProperties = new Map<object, Set<string | symbol>>();
   const proxySubscriptions = new Map<object, () => void>();
+  let prevResult: T = null!;
+  let prevResultProxyVersions = new Map<object, number>();
 
   let stopped = false;
   let triggered = false;
@@ -310,30 +297,37 @@ export function observe<T>(
   function doUpdate() {
     accessedProxyProperties.clear();
     const proxies = new Set<object>();
-    const value = listenGetters(
+    const result = listenGetters(
       (proxy, prop) => getterListener(proxies, proxy, prop),
       func,
     );
-    collectProxies(value, proxies);
-    proxySubscriptions.forEach((unsubscribe, receiver) => {
-      if (!proxies.has(receiver)) {
+    const resultProxyVersions = collectProxies(result);
+    for (const p of resultProxyVersions.keys()) proxies.add(p);
+
+    proxySubscriptions.forEach((unsubscribe, proxy) => {
+      if (!proxies.has(proxy)) {
         unsubscribe();
-        proxySubscriptions.delete(receiver);
+        proxySubscriptions.delete(proxy);
       }
     });
-    proxies.forEach((receiver) => {
-      if (!proxySubscriptions.has(receiver)) {
-        const unsubscribe = subscribeWeak(receiver, triggerRef, true);
-        proxySubscriptions.set(receiver, unsubscribe);
+    proxies.forEach((proxy) => {
+      if (!proxySubscriptions.has(proxy)) {
+        const unsubscribe = subscribeWeak(proxy, triggerRef, true);
+        proxySubscriptions.set(proxy, unsubscribe);
       }
     });
-    accessedProxyProperties.forEach((receiver) => {
-      if (proxies.has(receiver)) {
-        accessedProxyProperties.delete(receiver);
+    accessedProxyProperties.forEach((proxy) => {
+      if (proxies.has(proxy)) {
+        accessedProxyProperties.delete(proxy);
       }
     });
 
-    consume(value);
+    const compareResult = process(result, prevResult, prevResultProxyVersions);
+    prevResultProxyVersions = resultProxyVersions;
+    prevResult = result;
+    if (compareResult === CompareResult.Different) {
+      consume(result);
+    }
   }
 
   update();
@@ -356,19 +350,129 @@ export function observe<T>(
   };
 }
 
-export function snapshotify<T>(target: T): T {
-  const map = new Map<object, object>();
+function collectProxies(obj: unknown) {
+  const visited = new Set<object>();
+  const proxyVersions = new Map<object, number>();
 
+  function traversal(obj: unknown) {
+    if (!isObject(obj) || isRef(obj)) return;
+    if (visited.has(obj)) return;
+    visited.add(obj);
+    if (isValtioProxy(obj)) {
+      proxyVersions.set(obj, getVersion(obj)!);
+      return;
+    }
+    for (const key of Reflect.ownKeys(obj)) traversal(Reflect.get(obj, key));
+  }
+
+  traversal(obj);
+  return proxyVersions;
+}
+
+enum CompareResult {
+  Cycle,
+  Same,
+  DeepEqual,
+  Different,
+}
+
+function process<T>(
+  result: T,
+  prevResult: T,
+  prevResultProxyVersions: Map<object, number>,
+): CompareResult {
+  type Matching = [object, CompareResult];
+  const currToPrevMap = new Map<object, Matching>();
+  const cycleRoots = new Set<object>();
+  const circulars = new Set<object>();
+
+  function traversal(obj: unknown, prevObj: unknown): CompareResult {
+    if (obj === prevObj) {
+      return isValtioProxy(obj) &&
+        prevResultProxyVersions.get(obj) !== getVersion(obj)
+        ? CompareResult.Different
+        : CompareResult.Same;
+    }
+    if (!isObject(obj) || !isObject(prevObj)) return CompareResult.Different;
+    if (
+      isValtioProxy(obj) ||
+      isValtioProxy(prevObj) ||
+      isRef(obj) ||
+      isRef(prevObj)
+    ) {
+      return CompareResult.Different;
+    }
+    {
+      const matching = currToPrevMap.get(obj);
+      if (matching) {
+        if (matching[0] !== prevObj) return CompareResult.Different;
+        const compareResult = matching[1];
+        if (compareResult === CompareResult.Cycle) cycleRoots.add(obj);
+        return compareResult;
+      }
+    }
+
+    let compareResult = CompareResult.Cycle;
+    const matching: Matching = [prevObj, compareResult];
+    currToPrevMap.set(obj, matching);
+
+    const objKeys = Reflect.ownKeys(obj);
+    let hasDiffs = objKeys.length != Reflect.ownKeys(prevObj).length;
+    let hasCycles = false;
+    for (const key of objKeys) {
+      if (!Object.getOwnPropertyDescriptor(prevObj, key)) {
+        hasDiffs = true;
+        continue;
+      }
+      const prevVal = Reflect.get(prevObj, key);
+      const valCompareResult = traversal(Reflect.get(obj, key), prevVal);
+      if (valCompareResult === CompareResult.DeepEqual)
+        Reflect.set(obj, key, prevVal);
+      hasDiffs ||= valCompareResult === CompareResult.Different;
+      hasCycles ||= valCompareResult === CompareResult.Cycle;
+    }
+
+    Object.freeze(obj); // note
+
+    if (hasDiffs) {
+      setAllCirculars(CompareResult.Different);
+      compareResult = CompareResult.Different;
+    } else if (hasCycles) {
+      if (cycleRoots.delete(obj) && cycleRoots.size === 0) {
+        setAllCirculars(CompareResult.DeepEqual);
+        compareResult = CompareResult.DeepEqual;
+      } else {
+        circulars.add(obj);
+        compareResult = CompareResult.Cycle;
+      }
+    } else {
+      compareResult = CompareResult.DeepEqual;
+    }
+    matching[1] = compareResult;
+    return compareResult;
+  }
+
+  function setAllCirculars(compareResult: CompareResult) {
+    circulars.forEach((c) => (currToPrevMap.get(c)![1] = compareResult));
+    circulars.clear();
+  }
+
+  return traversal(result, prevResult);
+}
+
+const snapMap = new WeakMap<object, object>();
+
+export function snapshotify<T>(target: T): T {
   function traversal(target: T) {
     if (isValtioProxy(target)) {
       return snapshot(target) as T; // found proxy, let's snapshot it!
     }
     if (!valtioCanProxy(target)) return target;
-    if (map.has(target as object)) return map.get(target as object);
+    if (snapMap.has(target as object)) return snapMap.get(target as object);
     const snap = Array.isArray(target)
       ? []
       : Object.create(Object.getPrototypeOf(target));
-    map.set(target as object, snap);
+    snapMap.set(target as object, snap);
     Reflect.ownKeys(target as object).forEach((key) => {
       if (Object.getOwnPropertyDescriptor(snap, key)) {
         return;

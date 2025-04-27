@@ -3,7 +3,8 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/artelk/valtio-observe/ci.yml?branch=main)](https://github.com/artelk/valtio-observe/actions?query=workflow%3ACI)
 [![npm](https://img.shields.io/npm/v/valtio-observe)](https://www.npmjs.com/package/valtio-observe)
 
-valtio-observe allows observing updates of an expression using [Valtio](https://github.com/pmndrs/valtio) proxies and use useObserve in React applications
+Valtio-observe allows observing updates of an expression using [Valtio](https://github.com/pmndrs/valtio) proxies and use useObserve in React applications.
+The expression may be any pure function depending on one or multiple states (valtio proxies).
 
 ## Install
 
@@ -20,9 +21,13 @@ observe<T>(func: () => T, consume: (value: T) => void, inSync?: boolean): { sync
 The `observe` excecutes the `func` and passes its result to the `consume` function.
 It subscribes to all proxy properties which getters were accessed while calling the `func`.
 Additianally it searches for proxies in the returned value and subscribes to them.
-The `observe` returns functions 'stop' and 'sync'. The `stop` should be called to stop the process.
+The `observe` returns functions `stop` and `sync`. The `stop` should be called to stop the process.
 The `sync` can be useful with asynchronous observes and it allows to execute pending updates if any.
 Note: If the references to the returned functions are lost the observing will be stoped on the next GC run.
+
+The `observe` deep-compares the produced value with the presously returned value and omits the `consume` execution if it is deep-equal.
+For complex objects the `observe` reuses the inner objects if they are deep-equal to the ones from the previous result.
+Note: it calls Object.freeze() for the returned object and all it's inner objects except valtio proxies and valtio `ref`s.
 
 ```ts
 batch(body: () => void): void
@@ -30,10 +35,10 @@ batch(body: () => void): void
 
 The `batch` is useful with synchronous observes to trigger only one update for multiple changes made in the batch.
 
-Example
+### Example
 
 ```ts
-import { proxy } from 'valtio';
+import { proxy } from 'valtio/vanilla';
 import { observe } from 'valtio-observe/vanilla';
 
 const state1 = proxy({ x: 0 });
@@ -90,10 +95,16 @@ Signature:
 useObserve<T>(func: () => T, inSync?: boolean): T
 ```
 
-The `useObserve` converts the object returned from the `func` to a read-only copy.
-It calls `snapshot` for the proxies found in the object.
+The `useObserve` uses the `observe` and additionally calls `snapshot` for valtio proxies found in the object.
+Main differences from `useSnapshot`:
+
+1. `useSnapshot` returns a snapshot of a single proxy while `useObserve` supports any (pure) expression which can use multiple proxies, function calls and conditional logic; the returned value isn't required to be a proxy.
+2. `useSnapshot` collects properties/paths accessed during rendering to only trigger re-render when they are modified later (internally it subscribes to the whole proxy and ignores the changes if no property/path values were modified). The `useObserve` uses property-level subscriptions and only subscribes to the proxy properties accessed during the `func` calls; additionally it checks if the returned value wasn't changed and omits render if that is deep-equal; if some inner object is deep-equal to the one from the previous result it substitutes that with the instance from the previous result.
+
+### Example
 
 ```js
+import { proxy } from 'valtio';
 import { useObserve } from 'valtio-observe';
 
 const state1 = proxy({ x: 0 });
