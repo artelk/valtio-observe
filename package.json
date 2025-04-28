@@ -1,7 +1,7 @@
 {
   "name": "valtio-observe",
   "description": "const v = useObserve(() => state.x + otherState.y);",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "type": "module",
   "author": "Artem Elkin",
   "repository": {

@@ -17,8 +17,14 @@ describe('observe with circular references', () => {
 
   it('not equal with cycle #1', () => {
     test(
-      unpath({ a: { b: path('_') }, c: 1 }),
-      unpath({ a: { b: path('_') }, c: 2 }),
+      unpath({
+        a: { b: path('_') },
+        c: 1,
+      }),
+      unpath({
+        a: { b: path('_') },
+        c: 2,
+      }),
       (prevResult, actualResult) => {
         expect(actualResult).not.toBe(prevResult);
         expect(actualResult.c).toBe(2);
@@ -29,8 +35,12 @@ describe('observe with circular references', () => {
 
   it('not equal with cycle #2', () => {
     test(
-      unpath({ a: { b: path('_'), c: 1 } }),
-      unpath({ a: { b: path('_'), c: 2 } }),
+      unpath({
+        a: { b: path('_'), c: 1 },
+      }),
+      unpath({
+        a: { b: path('_'), c: 2 },
+      }),
       (prevResult, actualResult) => {
         expect(actualResult).not.toBe(prevResult);
         expect(actualResult.a.c).toBe(2);
@@ -41,8 +51,18 @@ describe('observe with circular references', () => {
 
   it('inner cycle unchanged', () => {
     test(
-      unpath({ o: { a: { b: path('_.o') } }, c: 1 }),
-      unpath({ o: { a: { b: path('_.o') } }, c: 2 }),
+      unpath({
+        o: {
+          a: { b: path('_.o') },
+        },
+        c: 1,
+      }),
+      unpath({
+        o: {
+          a: { b: path('_.o') },
+        },
+        c: 2,
+      }),
       (prevResult, actualResult) => {
         expect(actualResult).not.toBe(prevResult);
         expect(actualResult.c).toBe(2);
@@ -54,8 +74,18 @@ describe('observe with circular references', () => {
 
   it('inner cycle changed', () => {
     test(
-      unpath({ o: { a: { b: path('_.o') }, c: 1 } }),
-      unpath({ o: { a: { b: path('_.o') }, c: 2 } }),
+      unpath({
+        o: {
+          a: { b: path('_.o') },
+          c: 1,
+        },
+      }),
+      unpath({
+        o: {
+          a: { b: path('_.o') },
+          c: 2,
+        },
+      }),
       (prevResult, actualResult) => {
         expect(actualResult).not.toBe(prevResult);
         expect(actualResult.o.c).toBe(2);
@@ -67,8 +97,18 @@ describe('observe with circular references', () => {
 
   it('the same object referenced twice - unchanged', () => {
     test(
-      unpath({ a: { b: { c: path('_.a') } }, d: path('_.a.b') }),
-      unpath({ a: { b: { c: path('_.a') } }, d: path('_.a.b') }),
+      unpath({
+        a: {
+          b: { c: path('_.a') },
+        },
+        d: path('_.a.b'),
+      }),
+      unpath({
+        a: {
+          b: { c: path('_.a') },
+        },
+        d: path('_.a.b'),
+      }),
       (prevResult, actualResult) => {
         expect(actualResult).toBe(prevResult);
         expect(actualResult.a.b.c).toBe(actualResult.a);
@@ -79,8 +119,20 @@ describe('observe with circular references', () => {
 
   it('the same object referenced twice - changed #1', () => {
     test(
-      unpath({ a: { b: { c: path('_.a') } }, d: path('_.a.b'), x: 1 }),
-      unpath({ a: { b: { c: path('_.a') } }, d: path('_.a.b'), x: 2 }),
+      unpath({
+        a: {
+          b: { c: path('_.a') },
+        },
+        d: path('_.a.b'),
+        x: 1,
+      }),
+      unpath({
+        a: {
+          b: { c: path('_.a') },
+        },
+        d: path('_.a.b'),
+        x: 2,
+      }),
       (prevResult, actualResult) => {
         expect(actualResult).not.toBe(prevResult);
         expect(actualResult.x).toBe(2);
@@ -93,8 +145,20 @@ describe('observe with circular references', () => {
 
   it('the same object referenced twice - changed #2', () => {
     test(
-      unpath({ a: { b: { c: path('_.a') }, x: 1 }, d: path('_.a.b') }),
-      unpath({ a: { b: { c: path('_.a') }, x: 2 }, d: path('_.a.b') }),
+      unpath({
+        a: {
+          b: { c: path('_.a') },
+          x: 1,
+        },
+        d: path('_.a.b'),
+      }),
+      unpath({
+        a: {
+          b: { c: path('_.a') },
+          x: 2,
+        },
+        d: path('_.a.b'),
+      }),
       (prevResult, actualResult) => {
         expect(actualResult).not.toBe(prevResult);
         expect(actualResult.a.x).toBe(2);
@@ -107,8 +171,18 @@ describe('observe with circular references', () => {
 
   it('the same object referenced twice - changed #3', () => {
     test(
-      unpath({ a: { b: { c: path('_.a'), x: 1 } }, d: path('_.a.b') }),
-      unpath({ a: { b: { c: path('_.a'), x: 2 } }, d: path('_.a.b') }),
+      unpath({
+        a: {
+          b: { c: path('_.a'), x: 1 },
+        },
+        d: path('_.a.b'),
+      }),
+      unpath({
+        a: {
+          b: { c: path('_.a'), x: 2 },
+        },
+        d: path('_.a.b'),
+      }),
       (prevResult, actualResult) => {
         expect(actualResult).not.toBe(prevResult);
         expect(actualResult.a.b.x).toBe(2);
@@ -122,10 +196,26 @@ describe('observe with circular references', () => {
   it('double cycle - unchanged #1', () => {
     test(
       unpath({
-        a: { b: { c: { d: path('_.a.b'), e: path('_.a.b'), f: { x: 1 } } } },
+        a: {
+          b: {
+            c: {
+              d: path('_.a.b'),
+              e: path('_.a.b'),
+              f: { x: 1 },
+            },
+          },
+        },
       }),
       unpath({
-        a: { b: { c: { d: path('_.a.b'), e: path('_.a.b'), f: { x: 1 } } } },
+        a: {
+          b: {
+            c: {
+              d: path('_.a.b'),
+              e: path('_.a.b'),
+              f: { x: 1 },
+            },
+          },
+        },
       }),
       (prevResult, actualResult) => {
         expect(actualResult).toBe(prevResult);
@@ -138,10 +228,26 @@ describe('observe with circular references', () => {
   it('double cycle - unchanged #2', () => {
     test(
       unpath({
-        a: { b: { c: { d: path('_.a.b'), e: path('_.a'), f: { x: 1 } } } },
+        a: {
+          b: {
+            c: {
+              d: path('_.a.b'),
+              e: path('_.a'),
+              f: { x: 1 },
+            },
+          },
+        },
       }),
       unpath({
-        a: { b: { c: { d: path('_.a.b'), e: path('_.a'), f: { x: 1 } } } },
+        a: {
+          b: {
+            c: {
+              d: path('_.a.b'),
+              e: path('_.a'),
+              f: { x: 1 },
+            },
+          },
+        },
       }),
       (prevResult, actualResult) => {
         expect(actualResult).toBe(prevResult);
@@ -154,10 +260,26 @@ describe('observe with circular references', () => {
   it('double cycle - unchanged #3', () => {
     test(
       unpath({
-        a: { b: { c: { d: path('_.a.b'), e: path('_'), f: { x: 1 } } } },
+        a: {
+          b: {
+            c: {
+              d: path('_.a.b'),
+              e: path('_'),
+              f: { x: 1 },
+            },
+          },
+        },
       }),
       unpath({
-        a: { b: { c: { d: path('_.a.b'), e: path('_'), f: { x: 1 } } } },
+        a: {
+          b: {
+            c: {
+              d: path('_.a.b'),
+              e: path('_'),
+              f: { x: 1 },
+            },
+          },
+        },
       }),
       (prevResult, actualResult) => {
         expect(actualResult).toBe(prevResult);
@@ -172,14 +294,24 @@ describe('observe with circular references', () => {
       unpath({
         a: {
           b: {
-            c: { d: path('_.a.b'), e: path('_.a.b'), f: { x: 1 }, g: { y: 0 } },
+            c: {
+              d: path('_.a.b'),
+              e: path('_.a.b'),
+              f: { x: 1 },
+              g: { y: 0 },
+            },
           },
         },
       }),
       unpath({
         a: {
           b: {
-            c: { d: path('_.a.b'), e: path('_.a'), f: { x: 2 }, g: { y: 0 } },
+            c: {
+              d: path('_.a.b'),
+              e: path('_.a'),
+              f: { x: 2 },
+              g: { y: 0 },
+            },
           },
         },
       }),
@@ -227,14 +359,18 @@ describe('observe with circular references', () => {
     test(
       unpath({
         a: {
-          b: { c: { d: path('_.a.b'), e: path('_.a.b') } },
+          b: {
+            c: { d: path('_.a.b'), e: path('_.a.b') },
+          },
           f: { x: 1 },
           g: { y: 0 },
         },
       }),
       unpath({
         a: {
-          b: { c: { d: path('_.a.b'), e: path('_.a') } },
+          b: {
+            c: { d: path('_.a.b'), e: path('_.a') },
+          },
           f: { x: 2 },
           g: { y: 0 },
         },
@@ -252,12 +388,20 @@ describe('observe with circular references', () => {
   it('double cycle - changed #4', () => {
     test(
       unpath({
-        a: { b: { c: { d: path('_.a.b'), e: path('_.a.b') } } },
+        a: {
+          b: {
+            c: { d: path('_.a.b'), e: path('_.a.b') },
+          },
+        },
         f: { x: 1 },
         g: { y: 0 },
       }),
       unpath({
-        a: { b: { c: { d: path('_.a.b'), e: path('_.a') } } },
+        a: {
+          b: {
+            c: { d: path('_.a.b'), e: path('_.a') },
+          },
+        },
         f: { x: 2 },
         g: { y: 0 },
       }),
@@ -267,6 +411,115 @@ describe('observe with circular references', () => {
         expect(actualResult.g).toBe(prevResult.g);
         expect(actualResult.a.b.c.d).toBe(actualResult.a.b);
         expect(actualResult.a.b.c.e).toBe(actualResult.a);
+      },
+    );
+  });
+
+  it('two cycles - unchanged', () => {
+    test(
+      unpath({
+        a: {
+          b: {
+            c: { d: path('_.a') },
+          },
+        },
+        f: {
+          g: {
+            h: { i: path('_.f') },
+          },
+        },
+      }),
+      unpath({
+        a: {
+          b: {
+            c: { d: path('_.a') },
+          },
+        },
+        f: {
+          g: {
+            h: { i: path('_.f') },
+          },
+        },
+      }),
+      (prevResult, actualResult) => {
+        expect(actualResult).toBe(prevResult);
+      },
+    );
+  });
+
+  it('two cycles - changed', () => {
+    test(
+      unpath({
+        a: {
+          b: {
+            c: { d: path('_.a') },
+            x: 1,
+          },
+        },
+        f: {
+          g: {
+            h: { i: path('_.f') },
+          },
+        },
+      }),
+      unpath({
+        a: {
+          b: {
+            c: { d: path('_.a') },
+            x: 2,
+          },
+        },
+        f: {
+          g: {
+            h: { i: path('_.f') },
+          },
+        },
+      }),
+      (prevResult, actualResult) => {
+        expect(actualResult).not.toBe(prevResult);
+        expect(actualResult.a).not.toBe(prevResult.a);
+        expect(actualResult.a.b).not.toBe(prevResult.a.b);
+        expect(actualResult.a.b.c).not.toBe(prevResult.a.b.c);
+        expect(actualResult.a.b.x).toBe(2);
+        expect(actualResult.a.b.c.d).not.toBe(prevResult.a.b.c.d);
+        expect(actualResult.a.b.c.d).toBe(actualResult.a);
+
+        expect(actualResult.f).toBe(prevResult.f);
+      },
+    );
+  });
+
+  it('cut and copy', () => {
+    test(
+      unpath({
+        a: { b: { c: 1 } },
+        d: path('_.a.b'),
+      }),
+      unpath({
+        a: { b: { c: 1 } },
+        d: { c: 1 },
+      }),
+      (prevResult, actualResult) => {
+        expect(actualResult).toBe(prevResult);
+      },
+    );
+  });
+
+  it('merge and reuse', () => {
+    test(
+      unpath({
+        a: { b: { c: 1 } },
+        d: { c: 1 },
+      }),
+      unpath({
+        a: { b: { c: 1 } },
+        d: path('_.a.b'),
+      }),
+      (prevResult, actualResult) => {
+        expect(actualResult).not.toBe(prevResult);
+        expect(actualResult.a).toBe(prevResult.a);
+        expect(actualResult.d).not.toBe(prevResult.d);
+        expect(actualResult.d.c).toBe(1);
       },
     );
   });

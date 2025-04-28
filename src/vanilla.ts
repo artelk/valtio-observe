@@ -436,6 +436,7 @@ function process<T>(
 
     if (hasDiffs) {
       setAllCirculars(CompareResult.Different);
+      cycleRoots.clear();
       compareResult = CompareResult.Different;
     } else if (hasCycles) {
       if (cycleRoots.delete(obj) && cycleRoots.size === 0) {
