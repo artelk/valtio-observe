@@ -1,23 +1,31 @@
+/* eslint-disable react-compiler/react-compiler */
 import { observe, snapshotify } from './vanilla.js';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export function useObserve<T>(func: () => T, inSync?: boolean): T {
-  const [snapshot, setSnapshot] = useState(() => snapshotify(func()));
+  const snapshot = useRef<T>(null);
+  const handle = useRef<{ stop: () => void; restart: () => void }>(null);
+  const [, rerender] = useState<object>(null!);
 
-  useEffect(() => {
+  if (handle.current === null) {
     let isInit = true;
-    const { stop } = observe(
+    handle.current = observe(
       func,
       (obj) => {
-        if (!isInit) {
-          setSnapshot(snapshotify(obj));
-        }
+        snapshot.current = snapshotify(obj);
+        if (!isInit) rerender({});
       },
       inSync,
     );
     isInit = false;
-    return stop;
-  }, []);
+  }
 
-  return snapshot;
+  useEffect(() => {
+    handle.current!.restart();
+    return () => {
+      handle.current!.stop();
+    };
+  }, [handle]);
+
+  return snapshot.current!;
 }

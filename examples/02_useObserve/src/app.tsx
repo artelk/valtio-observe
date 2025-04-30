@@ -1,5 +1,5 @@
 import { proxy } from 'valtio';
-import { useObserve } from 'valtio-observe';
+import { useObserve } from '../../../src/index';
 
 const state1 = proxy({ x: 0 });
 const state2 = proxy({ a: { y: 0 } });

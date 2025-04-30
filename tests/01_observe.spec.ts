@@ -412,3 +412,31 @@ it('should reuse parts of the returned object if deep equal', async () => {
 
   stop();
 });
+
+it('should rerun function on change after restart', async () => {
+  const state = proxy({ count: 0 });
+  const data: number[] = [];
+  const { stop, restart } = observe(
+    () => ({ v: state.count }),
+    ({ v }) => {
+      data.push(v);
+    },
+    true, // sync
+  );
+  expect(data).toEqual([0]);
+  ++state.count;
+  expect(data).toEqual([0, 1]);
+
+  stop();
+  ++state.count;
+  expect(data).toEqual([0, 1]);
+
+  restart();
+  expect(data).toEqual([0, 1, 2]);
+
+  stop();
+  restart();
+  expect(data).toEqual([0, 1, 2]);
+  ++state.count;
+  expect(data).toEqual([0, 1, 2, 3]);
+});

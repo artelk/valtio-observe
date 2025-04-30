@@ -33,14 +33,12 @@ const { listenGetters, subscribeToSetters } = (() => {
     (target: object, prop: string | symbol, value: unknown) => void
   >();
   const setterListeners = new Set<
-    WeakRef<
-      (
-        target: object,
-        prop: string | symbol,
-        prevValue: unknown,
-        newValue: unknown,
-      ) => void
-    >
+    (
+      target: object,
+      prop: string | symbol,
+      prevValue: unknown,
+      newValue: unknown,
+    ) => void
   >();
 
   function notifySetterListeners(
@@ -49,10 +47,8 @@ const { listenGetters, subscribeToSetters } = (() => {
     prevValue: unknown,
     newValue: unknown,
   ) {
-    for (const listenerRef of setterListeners) {
-      const listener = listenerRef.deref();
-      if (listener) listener(target, prop, prevValue, newValue);
-      else setterListeners.delete(listenerRef);
+    for (const listener of setterListeners) {
+      listener(target, prop, prevValue, newValue);
     }
   }
 
@@ -141,36 +137,14 @@ const { listenGetters, subscribeToSetters } = (() => {
       newValue: unknown,
     ) => void,
   ) => {
-    const listenerRef = new WeakRef(setterListener);
-    setterListeners.add(listenerRef);
+    setterListeners.add(setterListener);
     return () => {
-      setterListeners.delete(listenerRef);
-      const _keepAlive = setterListener; // prevent from GC
+      setterListeners.delete(setterListener);
     };
   };
 
   return { listenGetters, subscribeToSetters };
 })();
-
-function subscribeWeak<T extends object>(
-  proxy: T,
-  callbackWeakRef: WeakRef<() => void>,
-  inSync?: boolean,
-) {
-  const unsubscribe = subscribe(
-    proxy,
-    () => {
-      const callback = callbackWeakRef.deref();
-      if (callback) {
-        callback();
-      } else {
-        unsubscribe();
-      }
-    },
-    inSync,
-  );
-  return unsubscribe;
-}
 
 const batchCompleteCallbacks = new Set<() => void>();
 let batchDepth = 0;
@@ -199,7 +173,12 @@ export function observe<T>(
   func: () => T,
   consume: (value: T) => void,
   inSync?: boolean,
-): { sync: () => boolean; stop: () => void } {
+): {
+  sync: () => boolean;
+  stop: () => boolean;
+  restart: () => boolean;
+  isStopped: () => boolean;
+} {
   const accessedProxyProperties = new Map<object, Set<string | symbol>>();
   const proxySubscriptions = new Map<object, () => void>();
   let prevResult: T = null!;
@@ -225,33 +204,37 @@ export function observe<T>(
           }
         });
       };
-  const triggerRef = new WeakRef<() => void>(trigger);
 
-  const unsubscribeSetters = subscribeToSetters(
-    (receiver, prop, prevValue, newValue) => {
-      const props = accessedProxyProperties.get(receiver);
-      if (!props) return;
-      if (props.has(prop)) {
-        trigger();
-        return;
-      }
+  let unsubscribeSetters = subscribeToSetters(setterListener);
 
-      if (Array.isArray(receiver) && prop === 'length') {
-        const prevLength = prevValue as number;
-        const newLength = newValue as number;
-        if (newLength >= prevLength) return;
-        for (const p of props.keys()) {
-          if (typeof p !== 'string') continue;
-          const i = parseInt(p as string);
-          if (isNaN(i)) continue;
-          if (i < prevLength && i >= newLength) {
-            trigger();
-            return;
-          }
+  function setterListener(
+    receiver: object,
+    prop: string | symbol,
+    prevValue: unknown,
+    newValue: unknown,
+  ) {
+    const props = accessedProxyProperties.get(receiver);
+    if (!props) return;
+    if (props.has(prop)) {
+      trigger();
+      return;
+    }
+
+    if (Array.isArray(receiver) && prop === 'length') {
+      const prevLength = prevValue as number;
+      const newLength = newValue as number;
+      if (newLength >= prevLength) return;
+      for (const p of props.keys()) {
+        if (typeof p !== 'string') continue;
+        const i = parseInt(p as string);
+        if (isNaN(i)) continue;
+        if (i < prevLength && i >= newLength) {
+          trigger();
+          return;
         }
       }
-    },
-  );
+    }
+  }
 
   function addAccessedProxyProperty(receiver: object, prop: string | symbol) {
     if (!accessedProxyProperties.has(receiver)) {
@@ -312,7 +295,7 @@ export function observe<T>(
     });
     proxies.forEach((proxy) => {
       if (!proxySubscriptions.has(proxy)) {
-        const unsubscribe = subscribeWeak(proxy, triggerRef, true);
+        const unsubscribe = subscribe(proxy, trigger, true);
         proxySubscriptions.set(proxy, unsubscribe);
       }
     });
@@ -342,11 +325,24 @@ export function observe<T>(
           return true;
         },
     stop: () => {
+      if (stopped) return false;
       stopped = true;
+      triggered = false;
       batchCompleteCallbacks.delete(update);
       unsubscribeSetters();
       proxySubscriptions.forEach((unsubscribe) => unsubscribe());
+      proxySubscriptions.clear();
+      accessedProxyProperties.clear();
+      return true;
     },
+    restart: () => {
+      if (!stopped) return false;
+      unsubscribeSetters = subscribeToSetters(setterListener);
+      stopped = false;
+      update();
+      return true;
+    },
+    isStopped: () => stopped,
   };
 }
 
