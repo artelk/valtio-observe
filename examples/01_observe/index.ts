@@ -19,7 +19,6 @@ const { stop } = observe(
     console.log(`${new Date().toLocaleTimeString()} - ${xy}:${p.z}`);
   },
 );
-//stop = null; // don't lose the reference to the returned stop function otherwise it will be auto-stopped on the next GC run!
 
 const interval = setInterval(() => {
   state1.x++;

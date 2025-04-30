@@ -15,15 +15,14 @@ npm install valtio valtio-observe
 ## Vanilla js/ts usage
 
 ```ts
-observe<T>(func: () => T, consume: (value: T) => void, inSync?: boolean): { sync: () => boolean; stop: () => void }
+observe<T>(func: () => T, consume: (value: T) => void, inSync?: boolean): { sync: () => boolean; stop: () => boolean, restart: () => boolean, isStopped: () => boolean }
 ```
 
 The `observe` excecutes the `func` and passes its result to the `consume` function.
 It subscribes to all proxy properties which getters were accessed while calling the `func`.
 Additianally it searches for proxies in the returned value and subscribes to them.
-The `observe` returns functions `stop` and `sync`. The `stop` should be called to stop the process.
-The `sync` can be useful with asynchronous observes and it allows to execute pending updates if any.
-Note: If the references to the returned functions are lost the observing will be stoped on the next GC run.
+The `observe` returns functions `stop`, `restart`, `isStopped` and `sync`. The `stop` and `restart` should be called to stop and restart observing.
+The `sync` can be useful with asynchronous observes and it allows to immediately execute pending updates.
 
 The `observe` deep-compares the produced value with the presously returned value and omits the `consume` execution if it is deep-equal.
 For complex objects the `observe` reuses the inner objects if they are deep-equal to the ones from the previous result.
@@ -59,7 +58,6 @@ const { stop } = observe(
     console.log(`${new Date().toLocaleTimeString()} - ${xy}:${p.z}`);
   },
 );
-//stop = null; // don't lose the reference to the returned stop function otherwise it will be auto-stopped on the next GC run!
 
 const interval = setInterval(() => {
   state1.x++;
