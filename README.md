@@ -139,3 +139,42 @@ const Test = () => {
   );
 };
 ```
+
+## Computed values
+
+As far as the `observe` identifies all proxy properties directly or inderectly accessed during execution of the result producing function `func` you can use ordinary functions computing the derived values:
+
+```ts
+const obj = proxy({x: 42});
+const doubled() => 2 * obj.x;
+//...
+observe(() => doubled(), (value) => {/*...*/}); // vanilla
+const value = useObserve(() => doubled()); // with React
+```
+
+You can make the computed value to be a valtio proxy using a `computed` function:
+
+```ts
+function computed<T>(func: () => T, inSync?: boolean): { readonly value: T };
+```
+
+The returned object is a valtio proxy with a getter `value` which returns the (cached) computed value.
+You can stop, restart and sync the computation using the `handle` function:
+
+```ts
+const obj = proxy({ x: 0, y: 0 });
+const c = computed(() => `${obj.x}:${obj.y}`, true);
+expect(c.value).toEqual('0:0');
+obj.x++;
+expect(c.value).toEqual('1:0');
+obj.y++;
+expect(c.value).toEqual('1:1');
+
+handle(c).stop(); // stop processing updates
+obj.x++;
+expect(c.value).toEqual('1:1');
+handle(c).restart(); // start again and process missing updates
+expect(c.value).toEqual('2:1');
+```
+
+The computed object is an ordinary valtio proxy which you can use with `subscribe` or in other computed values.

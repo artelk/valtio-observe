@@ -4,6 +4,7 @@ import {
   getVersion,
   unstable_getInternalStates,
   unstable_replaceInternalFunction,
+  proxy,
 } from 'valtio/vanilla';
 
 const isObject = (x: unknown): x is object =>
@@ -169,16 +170,18 @@ export function batch(body: () => void) {
   }
 }
 
+type ObserveHandle = {
+  readonly sync: () => boolean;
+  readonly stop: () => boolean;
+  readonly restart: () => boolean;
+  readonly isStopped: () => boolean;
+};
+
 export function observe<T>(
   func: () => T,
   consume: (value: T) => void,
   inSync?: boolean,
-): {
-  sync: () => boolean;
-  stop: () => boolean;
-  restart: () => boolean;
-  isStopped: () => boolean;
-} {
+): ObserveHandle {
   const accessedProxyProperties = new Map<object, Set<string | symbol>>();
   const proxySubscriptions = new Map<object, () => void>();
   let prevResult: T = null!;
@@ -315,7 +318,7 @@ export function observe<T>(
 
   update();
 
-  return {
+  const handle: ObserveHandle = {
     sync: inSync
       ? () => false
       : () => {
@@ -344,6 +347,8 @@ export function observe<T>(
     },
     isStopped: () => stopped,
   };
+
+  return Object.freeze(handle);
 }
 
 function collectProxies(obj: unknown) {
@@ -489,4 +494,28 @@ export function snapshotify<T>(target: T): T {
   }
 
   return traversal(target);
+}
+
+const COMPUTED_VALUE = Symbol();
+const HANDLE = Symbol();
+
+export function computed<T>(
+  func: () => T,
+  inSync?: boolean,
+): { readonly value: T } {
+  const obj = proxy({
+    [COMPUTED_VALUE]: undefined as T,
+    get value() {
+      return this[COMPUTED_VALUE];
+    },
+    get [HANDLE]() {
+      return handle;
+    },
+  });
+  const handle = observe(func, (v) => (obj[COMPUTED_VALUE] = v), inSync);
+  return obj;
+}
+
+export function handle<T>(computed: { readonly value: T }): ObserveHandle {
+  return (computed as unknown as { [HANDLE]: ObserveHandle })[HANDLE];
 }
