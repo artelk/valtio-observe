@@ -1,7 +1,7 @@
 {
   "name": "valtio-observe",
   "description": "Valtio-observe allows reactive observing expressions/functions using valtio proxies like `const v = useObserve(() => state.x + otherState.y);`",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "type": "module",
   "author": "Artem Elkin",
   "repository": {
@@ -60,21 +60,22 @@
     "manager",
     "store",
     "reactive",
-    "observe"
+    "observe",
+    "computed"
   ],
   "license": "MIT",
   "prettier": {
     "singleQuote": true
   },
   "devDependencies": {
-    "@eslint/js": "^9.19.0",
+    "@eslint/js": "^9.36.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.10.10",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
-    "eslint": "9.19.0",
+    "eslint": "^9.36.0",
     "eslint-import-resolver-typescript": "^3.7.0",
     "eslint-plugin-import": "^2.31.0",
     "eslint-plugin-jsx-a11y": "^6.10.2",
